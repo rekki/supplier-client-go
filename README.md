@@ -1,5 +1,8 @@
 # REKKI API Client (Go)
 
+![badge](https://github.com/rekki/supplier-client-go/workflows/Go/badge.svg)
+
+
 This is a Go client so restaurant suppliers can retrieve orders posted through Rekki.
 It is simply a wrapper around our [HTTP API][0]
 
