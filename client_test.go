@@ -48,7 +48,8 @@ func TestGetCustomer_singleMatching(t *testing.T) {
 
 	defer server.Close()
 
-	c := &Client{BaseURL: server.URL, ApiToken: "<some-token>"}
+	c := NewClient("api-token", nil)
+	c.baseURL = server.URL
 
 	got, err := c.GetOrders(123456)
 

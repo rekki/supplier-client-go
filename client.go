@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -44,8 +45,22 @@ type GetOrdersRequestBody struct {
 }
 
 type Client struct {
-	BaseURL  string
-	ApiToken string
+	h        *http.Client
+	baseURL  string
+	apiToken string
+}
+
+func NewClient(apiToken string, h *http.Client) *Client {
+	if h == nil {
+		tr := &http.Transport{
+			MaxIdleConns:       10,
+			IdleConnTimeout:    30 * time.Second,
+			DisableCompression: true, // assume input is already compressed
+		}
+		h = &http.Client{Transport: tr}
+	}
+
+	return &Client{baseURL: "api.rekki.com", apiToken: apiToken, h: h}
 }
 
 func (c *Client) GetOrders(sinceTS int64) ([]Order, error) {
@@ -54,17 +69,16 @@ func (c *Client) GetOrders(sinceTS int64) ([]Order, error) {
 		return nil, errors.Wrap(err, "unable to serialise body")
 	}
 
-	req, err := http.NewRequest("POST", c.BaseURL+"/api/catalog/integration/list_orders_by_supplier", bytes.NewBuffer(reqBody))
+	req, err := http.NewRequest("POST", c.baseURL+"/api/catalog/integration/list_orders_by_supplier", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-REKKI-Authorization-Type", "supplier_api_token")
-	req.Header.Set("Authorization", "Bearer "+c.ApiToken)
+	req.Header.Set("Authorization", "Bearer "+c.apiToken)
 
-	h := &http.Client{}
-	res, err := h.Do(req)
+	res, err := c.h.Do(req)
 	if err != nil {
 		return nil, err
 	}

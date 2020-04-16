@@ -13,7 +13,7 @@ straight away!
 Filters orders created at or after the given UNIX timestamp.
 
 ```go
-c := &rekki.Client{BaseURL: "https://api.rekki.com", ApiToken: "<API token here>"}
+c := rekki.NewClient("<API token here>", nil) // use the default http.Client created
 orders, err := c.GetOrders(123456)
 
 if err != nil {
