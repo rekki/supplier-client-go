@@ -3,12 +3,12 @@
 This is a Go client so restaurant suppliers can retrieve orders posted through Rekki.
 It is simply a wrapper around our [HTTP API][0]
 
-## :nut_and_bolt: Usage
+## Usage
 
 Simply initialise the Rekki client with your API token, and start using it
 straight away!
 
-### :inbox_tray: `GetOrders`
+### `GetOrders`
 
 Filters orders created at or after the given UNIX timestamp.
 
