@@ -1,4 +1,4 @@
-module supplier-client-go
+module github.com/rekki/supplier-client-go
 
 go 1.14
 
