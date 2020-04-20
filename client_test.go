@@ -1,98 +1,163 @@
 package rekki
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
-
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-func TestGetCustomer_singleMatching(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		_, err := rw.Write([]byte(`
-			{
-				"orders": [
-					{
-					"customer_account_no": "R8813", 
-					"confirmed_at": "2019-08-12T12:20:10.968294",
-					"contact_info": "+447123456789",
-					"contact_name": "John Doe",
-					"location_name": "Coffee & Cake Cafe",
-					"delivery_address": "123 Fake Street, Test",
-					"delivery_on": "2019-08-29",
-					"inserted_at_ts": 1565458065,
-					"notes": "fresh tomato please",
-					"reference": "A16915",
-					"supplier_notes": "please use back entrance",
-					"items": [
-						{
-						"id": "4fae0a5d3ee045922bae04eb2aee3d52",
-						"name": "tomatoes",
-						"price": "2.0",
-						"product_code": "tm12",
-						"quantity": 1,
-						"units": "kg",
-						"spec": "customer needs vines on tomatoes"
-						}
-					]
-					}
-				]
-			}
-		`))
-		if err != nil {
-			t.Errorf("got error %+v", err)
-		}
-	}))
-
-	defer server.Close()
-
-	c := NewClient("api-token", nil)
-	c.baseURL = server.URL
-
-	got, err := c.GetOrders(123456)
-
-	want := []Order{
-		Order{
-			CustomerAccountNo: "R8813",
-			ConfirmedAt:       "2019-08-12T12:20:10.968294",
-			ContactInfo:       "+447123456789",
-			ContactName:       "John Doe",
-			LocationName:      "Coffee & Cake Cafe",
-			DeliveryAddress:   "123 Fake Street, Test",
-			DeliveryOn:        "2019-08-29",
-			InsertedAtTs:      1565458065,
-			Notes:             "fresh tomato please",
-			Reference:         "A16915",
-			SupplierNotes:     "please use back entrance",
-			Items: []Item{
-				Item{
-					ID:          "4fae0a5d3ee045922bae04eb2aee3d52",
-					Name:        "tomatoes",
-					Price:       "2.0",
-					ProductCode: "tm12",
-					Quantity:    1,
-					Units:       "kg",
-					Spec:        "customer needs vines on tomatoes",
-				},
+func TestFetchOrder(t *testing.T) {
+	var fetchOrderTestData = []struct {
+		in               string
+		expectedApiToken string
+		order            map[string]string
+	}{
+		{
+			`{"orders":[{"customer_account_no":"","confirmed_at":null,"contact_info":"+31634000000","contact_name":"Rekki Rekki","location_name":"Reki","delivery_address":"Herengracht 514, Amsterdam, 1017 CC","delivery_on":"2020-03-07","inserted_at_ts":1583516677,"notes":"","reference":"rekki-fetch-1","supplier_notes":"","items":[{"id":"52008c36-5b98-4a4d-bc59-9b02c0f9dbb6","name":"Cucumber","price":"0.00","price_cents":0,"product_code":"Cc","quantity":1,"units":"kg","spec":""}]}]}`,
+			"XXXXX-XXXXX-XXXXX",
+			map[string]string{
+				"rekki-fetch-1": `{"customer_account_no":"","confirmed_at":null,"contact_info":"+31634000000","contact_name":"Rekki Rekki","location_name":"Reki","delivery_address":"Herengracht 514, Amsterdam, 1017 CC","delivery_on":"2020-03-07","inserted_at_ts":1583516677,"notes":"","reference":"rekki-fetch-1","supplier_notes":"","items":[{"id":"52008c36-5b98-4a4d-bc59-9b02c0f9dbb6","name":"Cucumber","price":"0.00","price_cents":0,"product_code":"Cc","quantity":1,"units":"kg","spec":""}]}`,
 			},
+		},
+		{
+			`{"orders":[{"customer_account_no":"","confirmed_at":null,"contact_info":"+31634000000","contact_name":"Rekki Rekki","location_name":"Reki","delivery_address":"Herengracht 514, Amsterdam, 1017 CC","delivery_on":"2020-03-07","inserted_at_ts":1583516677,"notes":"","supplier_notes":"","items":[{"id":"52008c36-5b98-4a4d-bc59-9b02c0f9dbb6","name":"Cucumber","price":"0.00","price_cents":0,"product_code":"Cc","quantity":1,"units":"kg","spec":""}]}]}`,
+			"XXXXX-XXXXX-XXXXX",
+			map[string]string{},
 		},
 	}
 
-	if err != nil {
-		t.Errorf("Got an error: %s", err.Error())
+	for _, tt := range fetchOrderTestData {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reqAuth := r.Header.Get("Authorization")
+			bearerToken := strings.TrimPrefix(reqAuth, "Bearer ")
+			if tt.expectedApiToken != bearerToken {
+				t.Fatal("invalid bearer token")
+			}
+			fmt.Fprintln(w, tt.in)
+		}))
+		defer ts.Close()
+
+		api, err := NewAPI(&http.Client{}, ts.URL, tt.expectedApiToken)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		orders, err := api.ListNotIntegratedOrders(context.TODO(), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for k, v := range tt.order {
+			var order Order
+			json.Unmarshal([]byte(v), &order)
+			if reflect.DeepEqual(order, orders[k]) == false {
+				t.Fatalf("invalid order by api \nexpected: %#v \n got: %#v", order, orders[k])
+			}
+		}
+	}
+}
+
+func TestSetOrderIntegrated(t *testing.T) {
+	var orderTestData = []struct {
+		expectedApiToken string
+		order            []string
+		expectedRequest  string
+	}{
+		{
+			"XXXXX-XXXXX-XXXXX",
+			[]string{
+				"rekki-set-1",
+			},
+			`{"orders":["rekki-set-1"]}`,
+		},
 	}
 
-	if len(got) != len(want) {
-		t.Errorf("got length %d, want %d", len(got), len(want))
+	for _, tt := range orderTestData {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reqAuth := r.Header.Get("Authorization")
+			bearerToken := strings.TrimPrefix(reqAuth, "Bearer ")
+			if tt.expectedApiToken != bearerToken {
+				t.Fatal("invalid bearer token")
+			}
+			b, _ := ioutil.ReadAll(r.Body)
+
+			if string(b) != tt.expectedRequest {
+				t.Fatalf("invalid order list expected: %s - got %s", tt.expectedRequest, string(b))
+			}
+		}))
+		defer ts.Close()
+
+		api, err := NewAPI(&http.Client{}, ts.URL, tt.expectedApiToken)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := api.SetOrderIntegrated(context.TODO(), tt.order); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestSetFailedIntegration(t *testing.T) {
+	var orderTestData = []struct {
+		expectedApiToken string
+		order            string
+		err              string
+		attempts         int
+		code             int
+	}{
+		{
+			"XXXXX-XXXXX-XXXXX",
+			`{"customer_account_no":"","confirmed_at":null,"contact_info":"+31634000000","contact_name":"Rekki Rekki","location_name":"Reki","delivery_address":"Herengracht 514, Amsterdam, 1017 CC","delivery_on":"2020-03-07","inserted_at_ts":1583516677,"notes":"","reference":"rekki-fetch-1","supplier_notes":"","items":[{"id":"52008c36-5b98-4a4d-bc59-9b02c0f9dbb6","name":"Cucumber","price":"0.00","price_cents":0,"product_code":"Cc","quantity":1,"units":"kg","spec":""}]}`,
+			`failed to integrate`,
+			5,
+			http.StatusOK,
+		},
 	}
 
-	if cmp.Equal(got, want, cmpopts.IgnoreFields(Order{}, "Items")) == false {
-		t.Errorf("got %+v, want %+v", got, want)
-	}
+	for _, tt := range orderTestData {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reqAuth := r.Header.Get("Authorization")
+			bearerToken := strings.TrimPrefix(reqAuth, "Bearer ")
+			if tt.expectedApiToken != bearerToken {
+				t.Fatal("invalid bearer token")
+			}
+			b, _ := ioutil.ReadAll(r.Body)
+			var oe OrderIntegrationError
+			json.Unmarshal(b, &oe)
+			if oe.Attempts != tt.attempts {
+				t.Fatalf("invalid attempt; expected %d, got: %d", tt.attempts, oe.Attempts)
+			}
 
-	if got[0].Items[0] != want[0].Items[0] {
-		t.Errorf("Item - got item %+v, want %+v", got[0].Items[0], want[0].Items[0])
+			if oe.Error != tt.err {
+				t.Fatalf("invalid error; expected %s, got: %s", tt.err, oe.Error)
+			}
+
+			var expectedOrder Order
+			json.Unmarshal([]byte(tt.order), &expectedOrder)
+			if reflect.DeepEqual(oe.Order, expectedOrder) == false {
+				t.Fatalf("invalid order\n expected %v \n got: %v", expectedOrder, oe.Order)
+			}
+
+		}))
+		defer ts.Close()
+
+		api, err := NewAPI(&http.Client{}, ts.URL, tt.expectedApiToken)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var order Order
+		json.Unmarshal([]byte(tt.order), &order)
+		e := OrderIntegrationError{Order: order, Attempts: tt.attempts, Error: tt.err}
+		if err := api.SetOrderError(context.TODO(), e); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

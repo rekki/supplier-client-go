@@ -2,103 +2,225 @@ package rekki
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
+	"path"
 	"time"
 
 	"github.com/pkg/errors"
 )
 
-type Item struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Price       string `json:"price"`
-	ProductCode string `json:"product_code"`
-	Quantity    int    `json:"quantity"`
-	Units       string `json:"units"`
-	Spec        string `json:"spec"`
-}
-
-type Order struct {
-	CustomerAccountNo string `json:"customer_account_no"`
-	ConfirmedAt       string `json:"confirmed_at"`
-	ContactInfo       string `json:"contact_info"`
-	ContactName       string `json:"contact_name"`
-	LocationName      string `json:"location_name"`
-	DeliveryAddress   string `json:"delivery_address"`
-	DeliveryOn        string `json:"delivery_on"`
-	InsertedAtTs      int    `json:"inserted_at_ts"`
-	Notes             string `json:"notes"`
-	Reference         string `json:"reference"`
-	SupplierNotes     string `json:"supplier_notes"`
-	Items             []Item `json:"items"`
-}
-
-type GetOrdersResponse struct {
+type OrderList struct {
 	Orders []Order `json:"orders"`
 }
 
-type GetOrdersRequestBody struct {
-	SinceTS int64 `json:"since"`
+type Order struct {
+	CustomerAccountNo string      `json:"customer_account_no"`
+	ConfirmedAt       *time.Time  `json:"confirmed_at"`
+	ContactInfo       string      `json:"contact_info"`
+	ContactName       string      `json:"contact_name"`
+	LocationName      string      `json:"location_name"`
+	DeliveryAddress   string      `json:"delivery_address"`
+	PostCode          string      `json:"-"`
+	DeliveryOn        string      `json:"delivery_on"`
+	InsertedAtTs      int64       `json:"inserted_at_ts"`
+	Notes             string      `json:"notes"`
+	Reference         string      `json:"reference"`
+	SupplierNotes     string      `json:"supplier_notes"`
+	Items             []OrderItem `json:"items"`
 }
 
-type Client struct {
-	h        *http.Client
-	baseURL  string
-	apiToken string
+type OrderItem struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Price       string  `json:"price"`
+	PriceCents  int64   `json:"price_cents"`
+	ProductCode string  `json:"product_code"`
+	Quantity    float64 `json:"quantity"`
+	Units       string  `json:"units"`
+	Spec        string  `json:"spec"`
 }
 
-func NewClient(apiToken string, h *http.Client) *Client {
-	if h == nil {
+// OrderMap is an alias for a map<string, Order>
+type OrderMap map[string]Order
+
+// OrderIntegrationError is a struct for setting errors for failures
+type OrderIntegrationError struct {
+	Order    Order  `json:"order"`
+	Error    string `json:"error"`
+	Attempts int    `json:"attempts"`
+}
+
+type API interface {
+	ListNotIntegratedOrders(ctx context.Context, sinceTS int32) (OrderMap, error)
+	SetOrderIntegrated(ctx context.Context, orderReferences []string) error
+	SetOrderError(ctx context.Context, e OrderIntegrationError) error
+}
+
+type externalSupplierAPI struct {
+	listURL          string
+	setIntegratedURL string
+	setErrorURL      string
+	token            string
+	client           *http.Client
+}
+
+func NewAPI(client *http.Client, host string, token string) (API, error) {
+	if client == nil {
 		tr := &http.Transport{
 			MaxIdleConns:       10,
 			IdleConnTimeout:    30 * time.Second,
 			DisableCompression: true, // assume input is already compressed
 		}
-		h = &http.Client{Transport: tr}
+		client = &http.Client{Transport: tr}
 	}
 
-	return &Client{baseURL: "api.rekki.com", apiToken: apiToken, h: h}
+	api := externalSupplierAPI{token: token, client: client}
+	listURL, err := buildURL(host, "api/integration/v1/orders/list_not_integrated")
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to parse list url")
+	}
+	api.listURL = listURL
+
+	setURL, err := buildURL(host, "api/integration/v1/orders/set_integrated")
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to parse set integrated url")
+	}
+	api.setIntegratedURL = setURL
+
+	errURL, err := buildURL(host, "api/integration/v1/orders/set_error")
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to parse set error url")
+	}
+	api.setErrorURL = errURL
+
+	return &api, nil
 }
 
-func (c *Client) GetOrders(sinceTS int64) ([]Order, error) {
+func buildURL(host string, p string) (string, error) {
+	h, err := url.Parse(host)
+	if err != nil {
+		return "", errors.Wrapf(err, "unable to parse HOST:%s", host)
+	}
+
+	h.Path = path.Join(h.Path, p)
+	return h.String(), nil
+}
+
+type GetOrdersRequestBody struct {
+	SinceTS int32 `json:"since"`
+}
+
+// ListNotIntegratedOrders fetches orders with `{"since":0}`
+func (a *externalSupplierAPI) ListNotIntegratedOrders(ctx context.Context, sinceTS int32) (OrderMap, error) {
 	reqBody, err := json.Marshal(&GetOrdersRequestBody{SinceTS: sinceTS})
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to serialise body")
 	}
 
-	req, err := http.NewRequest("POST", c.baseURL+"/api/catalog/integration/list_orders_by_supplier", bytes.NewBuffer(reqBody))
+	req, err := newRekkiRequest(ctx, a.listURL, a.token, bytes.NewBuffer(reqBody))
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to create req for fetching orders")
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-REKKI-Authorization-Type", "supplier_api_token")
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-
-	res, err := c.h.Do(req)
+	res, err := a.client.Do(req)
 	if err != nil {
-		return nil, err
-	}
-
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "Could not read body from /list_orders_by_supplier callout")
-	}
-
-	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("Upstream error response: %s", string(body))
+		return nil, errors.Wrap(err, "req is failed for fetching orders")
 	}
 
 	defer res.Body.Close()
 
-	var or GetOrdersResponse
-	err = json.Unmarshal(body, &or)
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read response body")
+	}
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request is failed %d - %s", res.StatusCode, string(body))
+	}
+
+	var r OrderList
+	if err := json.Unmarshal(body, &r); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal order")
+	}
+
+	// TODO We're iterating here already to assemble the map. Should this be
+	// responsability of the consumer and we just return a list?
+	orders := make(OrderMap)
+	for _, v := range r.Orders {
+		orders[v.Reference] = v
+	}
+
+	return orders, nil
+}
+
+// SetOrderIntegrated marks the order as succesfully integrated in ther Rekki platform.
+func (a *externalSupplierAPI) SetOrderIntegrated(ctx context.Context, orderReferences []string) error {
+	var p struct {
+		Orders []string `json:"orders"`
+	}
+
+	p.Orders = orderReferences
+	body, err := json.Marshal(&p)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal")
+	}
+
+	r, err := newRekkiRequest(ctx, a.setIntegratedURL, a.token, bytes.NewReader(body))
+	if err != nil {
+		return errors.Wrap(err, "failed to create req for integrating the order")
+	}
+
+	res, err := a.client.Do(r)
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		b, _ := ioutil.ReadAll(res.Body)
+		return fmt.Errorf("request is failed %d - %s", res.StatusCode, string(b))
+	}
+
+	return errors.Wrap(err, "failed req for setting integrated")
+}
+
+// SetOrderError marks an orders as failed to integrate. Reasons can vary from technical error
+// to uncomplete data.
+func (a *externalSupplierAPI) SetOrderError(ctx context.Context, e OrderIntegrationError) error {
+	body, err := json.Marshal(&e)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal")
+	}
+
+	r, err := newRekkiRequest(ctx, a.setErrorURL, a.token, bytes.NewReader(body))
+	if err != nil {
+		return errors.Wrap(err, "failed to create req for setting the failed order integration")
+	}
+
+	res, err := a.client.Do(r)
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		b, _ := ioutil.ReadAll(res.Body)
+		return fmt.Errorf("request is failed %d - %s", res.StatusCode, string(b))
+	}
+
+	return errors.Wrap(err, "failed req for setting integrated")
+}
+
+func newRekkiRequest(ctx context.Context, url string, token string, r io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, r)
 	if err != nil {
 		return nil, err
 	}
 
-	return or.Orders, nil
+	req.Header.Add("Accept", "application/json")
+	bearer := "Bearer " + token
+	req.Header.Set("Authorization", bearer)
+	req.Header.Set("X-REKKI-Authorization-Type", "supplier_api_token")
+
+	return req, nil
 }
