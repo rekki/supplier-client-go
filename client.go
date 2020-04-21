@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -27,7 +28,7 @@ type Order struct {
 	LocationName      string      `json:"location_name"`
 	DeliveryAddress   string      `json:"delivery_address"`
 	PostCode          string      `json:"-"`
-	DeliveryOn        string      `json:"delivery_on"`
+	DeliveryOn        simpleDate  `json:"delivery_on"`
 	InsertedAtTs      int64       `json:"inserted_at_ts"`
 	Notes             string      `json:"notes"`
 	Reference         string      `json:"reference"`
@@ -223,4 +224,31 @@ func newRekkiRequest(ctx context.Context, url string, token string, r io.Reader)
 	req.Header.Set("X-REKKI-Authorization-Type", "supplier_api_token")
 
 	return req, nil
+}
+
+// This alias has been created to deserialise the date
+// since the response from the API is not RFC-valid.
+type simpleDate struct {
+	time.Time
+}
+
+func (ct *simpleDate) MarshalJSON() ([]byte, error) {
+	if ct.Time.UnixNano() == 0 {
+		return []byte("null"), nil
+	}
+
+	ctLayout := "2006-01-02"
+	return []byte(fmt.Sprintf("\"%s\"", ct.Time.Format(ctLayout))), nil
+}
+
+func (sd *simpleDate) UnmarshalJSON(b []byte) (err error) {
+	s := strings.Trim(string(b), "\"")
+	if s == "null" {
+		sd.Time = time.Time{}
+		return
+	}
+
+	ctLayout := "2006-01-02"
+	sd.Time, err = time.Parse(ctLayout, s)
+	return
 }

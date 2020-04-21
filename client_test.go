@@ -161,3 +161,20 @@ func TestSetFailedIntegration(t *testing.T) {
 		}
 	}
 }
+
+func TestUnmarshalCustomDate(t *testing.T) {
+	sd := simpleDate{}
+	sd.UnmarshalJSON([]byte("2020-03-07"))
+
+	if sd.Year() != 2020 {
+		t.Errorf("Expected year 2020, got %d", sd.Year())
+	}
+
+	if sd.Month() != 03 {
+		t.Errorf("Expected month 03, got %d", sd.Month())
+	}
+
+	if sd.Day() != 07 {
+		t.Errorf("Expected day 07, got %d", sd.Day())
+	}
+}
