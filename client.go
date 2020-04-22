@@ -58,7 +58,7 @@ type OrderIntegrationError struct {
 }
 
 type API interface {
-	ListNotIntegratedOrders(ctx context.Context, sinceTS int32) (OrderMap, error)
+	ListNotIntegratedOrders(ctx context.Context, sinceTS int64) (OrderMap, error)
 	SetOrderIntegrated(ctx context.Context, orderReferences []string) error
 	SetOrderError(ctx context.Context, e OrderIntegrationError) error
 }
@@ -114,11 +114,11 @@ func buildURL(host string, p string) (string, error) {
 }
 
 type GetOrdersRequestBody struct {
-	SinceTS int32 `json:"since"`
+	SinceTS int64 `json:"since"`
 }
 
 // ListNotIntegratedOrders fetches orders with `{"since":0}`
-func (a *externalSupplierAPI) ListNotIntegratedOrders(ctx context.Context, sinceTS int32) (OrderMap, error) {
+func (a *externalSupplierAPI) ListNotIntegratedOrders(ctx context.Context, sinceTS int64) (OrderMap, error) {
 	reqBody, err := json.Marshal(&GetOrdersRequestBody{SinceTS: sinceTS})
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to serialise body")
