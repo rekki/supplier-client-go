@@ -178,6 +178,9 @@ func (a *externalSupplierAPI) SetOrderIntegrated(ctx context.Context, orderRefer
 	}
 
 	res, err := a.client.Do(r)
+	if err != nil {
+		return errors.Wrap(err, "request failed")
+	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
@@ -202,6 +205,9 @@ func (a *externalSupplierAPI) SetOrderError(ctx context.Context, e OrderIntegrat
 	}
 
 	res, err := a.client.Do(r)
+	if err != nil {
+		return errors.Wrap(err, "request failed")
+	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
