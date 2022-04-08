@@ -28,7 +28,7 @@ type Order struct {
 	LocationName      string      `json:"location_name"`
 	DeliveryAddress   string      `json:"delivery_address"`
 	PostCode          string      `json:"-"`
-	DeliveryOn        simpleDate  `json:"delivery_on"`
+	DeliveryOn        SimpleDate  `json:"delivery_on"`
 	InsertedAtTs      int64       `json:"inserted_at_ts"`
 	Notes             string      `json:"notes"`
 	Reference         string      `json:"reference"`
@@ -234,11 +234,11 @@ func newRekkiRequest(ctx context.Context, url string, token string, r io.Reader)
 
 // This alias has been created to deserialise the date
 // since the response from the API is not RFC-valid.
-type simpleDate struct {
+type SimpleDate struct {
 	time.Time
 }
 
-func (ct *simpleDate) MarshalJSON() ([]byte, error) {
+func (ct *SimpleDate) MarshalJSON() ([]byte, error) {
 	if ct.Time.UnixNano() == 0 {
 		return []byte("null"), nil
 	}
@@ -247,7 +247,7 @@ func (ct *simpleDate) MarshalJSON() ([]byte, error) {
 	return []byte(fmt.Sprintf("\"%s\"", ct.Time.Format(ctLayout))), nil
 }
 
-func (sd *simpleDate) UnmarshalJSON(b []byte) (err error) {
+func (sd *SimpleDate) UnmarshalJSON(b []byte) (err error) {
 	s := strings.Trim(string(b), "\"")
 	if s == "null" {
 		sd.Time = time.Time{}

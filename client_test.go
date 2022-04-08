@@ -163,7 +163,7 @@ func TestSetFailedIntegration(t *testing.T) {
 }
 
 func TestUnmarshalCustomDate(t *testing.T) {
-	sd := simpleDate{}
+	sd := SimpleDate{}
 	sd.UnmarshalJSON([]byte("2020-03-07"))
 
 	if sd.Year() != 2020 {
