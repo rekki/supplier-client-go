@@ -188,7 +188,7 @@ func (a *externalSupplierAPI) SetOrderIntegrated(ctx context.Context, orderRefer
 		return fmt.Errorf("request is failed %d - %s", res.StatusCode, string(b))
 	}
 
-	return errors.Wrap(err, "failed req for setting integrated")
+	return nil
 }
 
 // SetOrderError marks an orders as failed to integrate. Reasons can vary from technical error
@@ -215,7 +215,7 @@ func (a *externalSupplierAPI) SetOrderError(ctx context.Context, e OrderIntegrat
 		return fmt.Errorf("request is failed %d - %s", res.StatusCode, string(b))
 	}
 
-	return errors.Wrap(err, "failed req for setting integrated")
+	return nil
 }
 
 func newRekkiRequest(ctx context.Context, url string, token string, r io.Reader) (*http.Request, error) {
