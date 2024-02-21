@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -99,6 +100,47 @@ func TestSetOrderIntegrated(t *testing.T) {
 		}
 
 		if err := api.SetOrderIntegrated(context.TODO(), tt.order); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestConfirmOrders(t *testing.T) {
+	var orderTestData = []struct {
+		expectedApiToken string
+		order            []string
+		expectedRequest  string
+	}{
+		{
+			"XXXXX-XXXXX-XXXXX",
+			[]string{
+				"rekki-set-1",
+			},
+			`{"orders":["rekki-set-1"]}`,
+		},
+	}
+
+	for _, tt := range orderTestData {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reqAuth := r.Header.Get("Authorization")
+			bearerToken := strings.TrimPrefix(reqAuth, "Bearer ")
+			if tt.expectedApiToken != bearerToken {
+				t.Fatal("invalid bearer token")
+			}
+			b, _ := io.ReadAll(r.Body)
+
+			if string(b) != tt.expectedRequest {
+				t.Fatalf("invalid order list expected: %s - got %s", tt.expectedRequest, string(b))
+			}
+		}))
+		defer ts.Close()
+
+		api, err := NewAPI(&http.Client{}, ts.URL, tt.expectedApiToken)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := api.ConfirmOrder(context.TODO(), tt.order...); err != nil {
 			t.Fatal(err)
 		}
 	}

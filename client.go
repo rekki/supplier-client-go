@@ -61,12 +61,14 @@ type API interface {
 	ListNotIntegratedOrders(ctx context.Context, sinceTS int64) (OrderMap, error)
 	SetOrderIntegrated(ctx context.Context, orderReferences []string) error
 	SetOrderError(ctx context.Context, e OrderIntegrationError) error
+	ConfirmOrder(ctx context.Context, orderReference ...string) error
 }
 
 type externalSupplierAPI struct {
 	listURL          string
 	setIntegratedURL string
 	setErrorURL      string
+	confirmURL       string
 	token            string
 	client           *http.Client
 }
@@ -93,6 +95,12 @@ func NewAPI(client *http.Client, host string, token string) (API, error) {
 		return nil, errors.Wrapf(err, "unable to parse set integrated url")
 	}
 	api.setIntegratedURL = setURL
+
+	confirmURL, err := buildURL(host, "api/integration/v3/orders/confirm")
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to parse confirm url")
+	}
+	api.confirmURL = confirmURL
 
 	errURL, err := buildURL(host, "api/integration/v1/orders/set_error")
 	if err != nil {
@@ -186,6 +194,37 @@ func (a *externalSupplierAPI) SetOrderIntegrated(ctx context.Context, orderRefer
 	if res.StatusCode != http.StatusOK {
 		b, _ := ioutil.ReadAll(res.Body)
 		return fmt.Errorf("request is failed %d - %s", res.StatusCode, string(b))
+	}
+
+	return nil
+}
+
+// ConfirmOrder marks the order as confirmed in the Rekki platform.
+func (a *externalSupplierAPI) ConfirmOrder(ctx context.Context, orderReference ...string) error {
+	var j struct {
+		Orders []string `json:"orders"`
+	}
+	j.Orders = orderReference
+
+	b, err := json.Marshal(&j)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal")
+	}
+
+	r, err := newRekkiRequest(ctx, a.confirmURL, a.token, bytes.NewReader(b))
+	if err != nil {
+		return errors.Wrap(err, "failed to create req for confirming the order")
+	}
+
+	resp, err := a.client.Do(r)
+	if err != nil {
+		return errors.Wrap(err, "request failed")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("request is failed %d - %s", resp.StatusCode, b)
 	}
 
 	return nil
