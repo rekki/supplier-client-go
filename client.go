@@ -223,7 +223,7 @@ func (a *externalSupplierAPI) ConfirmOrder(ctx context.Context, orderReference .
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := ioutil.ReadAll(resp.Body)
 		return fmt.Errorf("request is failed %d - %s", resp.StatusCode, b)
 	}
 

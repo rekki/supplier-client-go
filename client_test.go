@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -127,7 +126,7 @@ func TestConfirmOrders(t *testing.T) {
 			if tt.expectedApiToken != bearerToken {
 				t.Fatal("invalid bearer token")
 			}
-			b, _ := io.ReadAll(r.Body)
+			b, _ := ioutil.ReadAll(r.Body)
 
 			if string(b) != tt.expectedRequest {
 				t.Fatalf("invalid order list expected: %s - got %s", tt.expectedRequest, string(b))
